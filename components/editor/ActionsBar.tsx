@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useDesignState } from '../../context/DesignContext';
 import { UndoIcon, RedoIcon, DownloadIcon, TrashIcon, XIcon, MenuIcon, MoreVertIcon } from '../icons';
@@ -21,6 +22,7 @@ const ActionsBar: React.FC<ActionsBarProps> = ({ toggleSidePanel }) => {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+        // FIX: Corrected typo from moreMenuref to moreMenuRef.
         if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
             setIsMoreMenuOpen(false);
         }
@@ -146,7 +148,7 @@ const ActionsBar: React.FC<ActionsBarProps> = ({ toggleSidePanel }) => {
           <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" className={`${baseButtonClass} p-2 ${canRedo ? defaultButtonClass : disabledButtonClass}`}><RedoIcon /></button>
         </div>
 
-        <div className="hidden lg:flex flex-1 justify-center">
+        <div className="hidden md:flex flex-1 justify-center">
             <div className="relative">
                 <select
                     value={permissions}
@@ -194,6 +196,20 @@ const ActionsBar: React.FC<ActionsBarProps> = ({ toggleSidePanel }) => {
                         <div className="my-1 border-t border-gray-100"></div>
                         <a href="#" onClick={e => { e.preventDefault(); onDesignSave(); setIsMoreMenuOpen(false); }} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Save Design</a>
                         <a href="#" onClick={e => { e.preventDefault(); onLayoutSave(); setIsMoreMenuOpen(false); }} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Save Layout</a>
+                        <div className="my-1 border-t border-gray-100"></div>
+                        <div className="px-4 pt-2 pb-1 text-xs text-gray-500 font-semibold">Permissions</div>
+                        <a href="#" onClick={e => { e.preventDefault(); setPermissions(Permission.FULL); setIsMoreMenuOpen(false); }} className="flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            <span>Full Access</span>
+                            {permissions === Permission.FULL && <span className="text-blue-600">✔</span>}
+                        </a>
+                        <a href="#" onClick={e => { e.preventDefault(); setPermissions(Permission.PARTIAL); setIsMoreMenuOpen(false); }} className="flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            <span>Partial Edit</span>
+                            {permissions === Permission.PARTIAL && <span className="text-blue-600">✔</span>}
+                        </a>
+                        <a href="#" onClick={e => { e.preventDefault(); setPermissions(Permission.READONLY); setIsMoreMenuOpen(false); }} className="flex justify-between items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            <span>Read-Only</span>
+                            {permissions === Permission.READONLY && <span className="text-blue-600">✔</span>}
+                        </a>
                     </div>
                 )}
             </div>

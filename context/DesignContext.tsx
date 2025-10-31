@@ -126,6 +126,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   
   const [draggedAnchor, setDraggedAnchor] = useState<Anchor | null>(null);
   const historyInitialState = useRef<DesignData | null>(null);
+  const lastTap = useRef({ time: 0, targetId: null as string | null });
 
   const svgRef = useRef<SVGSVGElement>(null);
   const previewRef = useRef<SVGSVGElement>(null);
@@ -945,33 +946,6 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setDragMouseStartPos(getMousePosition(e));
   }, [designData, selectedObjId, imageEditModeId, getMousePosition]);
 
-  const onObjMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, id: string) => {
-    e.stopPropagation();
-    if (imageEditModeId) setImageEditModeId(null);
-    if (currentTool === ToolType.Select && canEditObject(id)) {
-        if (permissions === Permission.PARTIAL) {
-            setSelectedObjId(id);
-            return; 
-        }
-        historyInitialState.current = designData;
-        setSelectedObjId(id);
-        setIsDragging(true);
-        const obj = designData[id];
-        setDragObjectStartPos(obj);
-        setDragMouseStartPos(getMousePosition(e));
-    }
-  }, [currentTool, canEditObject, designData, getMousePosition, imageEditModeId, permissions, setSelectedObjId]);
-  
-  const onImageMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, id: string) => {
-    e.stopPropagation();
-    if (imageEditModeId === id && canEditObject(id)) {
-        historyInitialState.current = designData;
-        setIsDragging(true);
-        setDragObjectStartPos(designData[id]);
-        setDragMouseStartPos(getMousePosition(e));
-    }
-  }, [imageEditModeId, canEditObject, designData, getMousePosition]);
-
   const onObjDblClick = useCallback((id: string) => {
     const obj = designData[id];
     if (obj) {
@@ -996,6 +970,46 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
     }
   }, [designData, fileInputRef, canEditObject, setEditingTextId, setImageEditModeId, setSelectedObjId]);
+
+  const onObjMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, id: string) => {
+    e.stopPropagation();
+
+    if ('touches' in e) {
+      const currentTime = new Date().getTime();
+      const tapLength = currentTime - lastTap.current.time;
+      if (lastTap.current.targetId === id && tapLength > 0 && tapLength < 400) {
+        onObjDblClick(id);
+        lastTap.current = { time: 0, targetId: null };
+        e.preventDefault();
+        return;
+      }
+      lastTap.current = { time: currentTime, targetId: id };
+    }
+    
+    if (imageEditModeId) setImageEditModeId(null);
+    if (currentTool === ToolType.Select && canEditObject(id)) {
+        if (permissions === Permission.PARTIAL) {
+            setSelectedObjId(id);
+            return; 
+        }
+        historyInitialState.current = designData;
+        setSelectedObjId(id);
+        setIsDragging(true);
+        const obj = designData[id];
+        setDragObjectStartPos(obj);
+        setDragMouseStartPos(getMousePosition(e));
+    }
+  }, [currentTool, canEditObject, designData, getMousePosition, imageEditModeId, permissions, setSelectedObjId, onObjDblClick]);
+  
+  const onImageMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, id: string) => {
+    e.stopPropagation();
+    if (imageEditModeId === id && canEditObject(id)) {
+        historyInitialState.current = designData;
+        setIsDragging(true);
+        setDragObjectStartPos(designData[id]);
+        setDragMouseStartPos(getMousePosition(e));
+    }
+  }, [imageEditModeId, canEditObject, designData, getMousePosition]);
 
   const updateImageFrame = useCallback((imageUrl: string, objId: string, dimensions: { imgWidth: number; imgHeight: number }) => {
     updateDesignDataWithHistory(prev => {
