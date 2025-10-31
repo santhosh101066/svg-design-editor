@@ -76,8 +76,10 @@ interface DesignContextState {
   deleteObject: (id: string) => void;
   moveObject: (draggedObjectId: string, targetLayerId: string, targetObjectId: string | null) => void;
   // Drawing state
+  isDrawing: boolean;
   currentPath: string;
   currentPolygonPoints: Point[];
+  onCancelDrawing: () => void;
   // Dragging/Editing state
   onAnchorMouseDown: (e: React.MouseEvent, elementId: string, pointIndex: number) => void;
   loadDesign: (design: SavedDesign) => void;
@@ -1258,6 +1260,12 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setEditingTextId(null);
   }, [setDesignData, setLayout, setLayers, setActiveLayerId, setHistory, setSelectedObjId, setImageEditModeId, setEditingTextId]);
 
+  const onCancelDrawing = useCallback(() => {
+    setIsDrawing(false);
+    setCurrentPath('');
+    setCurrentPolygonPoints([]);
+    setCurrentTool(ToolType.Select);
+  }, [setCurrentTool]);
 
   const value: DesignContextState = {
     designData, setDesignData, updateDesignDataWithHistory, layout, setLayout,
@@ -1272,7 +1280,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setLayers, activeLayerId, setActiveLayerId, addLayer, deleteLayer,
     renameLayer, toggleLayerVisibility, deleteObject, currentPath,
     currentPolygonPoints, onAnchorMouseDown, loadDesign, requestThemeImageUpload, updateThemeImage, applyThemeImage,
-    moveObject,
+    moveObject, isDrawing, onCancelDrawing,
   };
 
   return <DesignContext.Provider value={value}>{children}</DesignContext.Provider>;

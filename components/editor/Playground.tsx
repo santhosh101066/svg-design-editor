@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useDesignState } from '../../context/DesignContext';
 import { PADDING } from '../../constants';
@@ -19,7 +20,7 @@ const Playground: React.FC = () => {
   const {
     layout, svgRef, playgroundRef, onMouseDown, onMouseMove, onMouseUp, onWheel, designData, onObjMouseDown, onImageMouseDown, onObjDblClick,
     currentTool, zoom, setZoom, zoomIn, zoomOut, zoomToFit, panOffset, setPanOffset, isPanning, permissions, layers, selectedObjId,
-    cursorPosition, currentPath, currentPolygonPoints, onDrawingFinish, onAnchorMouseDown
+    cursorPosition, currentPath, currentPolygonPoints, onDrawingFinish, onAnchorMouseDown, isDrawing, onCancelDrawing
   } = useDesignState();
 
   const elementsByLayer = React.useMemo(() => {
@@ -46,6 +47,7 @@ const Playground: React.FC = () => {
 
   const bleedLineWidth = 1 / zoom;
   const selectedObject = selectedObjId ? designData[selectedObjId] : null;
+  const showFinishDrawingButton = isDrawing && currentTool === TT.Polygon && currentPolygonPoints.length > 0;
 
   return (
     <div 
@@ -61,6 +63,25 @@ const Playground: React.FC = () => {
       onDoubleClick={onDrawingFinish} 
       onWheel={onWheel}
     >
+      {showFinishDrawingButton && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
+            <button 
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={onCancelDrawing}
+                className="bg-gray-500 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-gray-600"
+            >
+                Cancel
+            </button>
+            <button 
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={onDrawingFinish}
+                disabled={currentPolygonPoints.length < 3}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+                Finish ({currentPolygonPoints.length})
+            </button>
+        </div>
+      )}
       <svg
         ref={svgRef}
         viewBox={`0 0 ${layout.width + PADDING * 2} ${layout.height + PADDING * 2}`}
