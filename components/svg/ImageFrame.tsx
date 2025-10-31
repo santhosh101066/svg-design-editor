@@ -1,7 +1,7 @@
 import React from 'react';
 import { useDesignState } from '../../context/DesignContext';
 import { ImageElement, RectElement } from '../../types';
-import { ImageIcon } from '../icons';
+import { ImageIcon, TrashIcon } from '../icons';
 
 interface ImageFrameProps extends ImageElement {
   onMouseDown?: (e: React.MouseEvent | React.TouchEvent, id: string) => void;
@@ -10,12 +10,11 @@ interface ImageFrameProps extends ImageElement {
 }
 
 const ImageFrame: React.FC<ImageFrameProps> = ({ id, x, y, height, width, url, themeImage, linkedObj, onMouseDown, onImageMouseDown, onDoubleClick }) => {
-  const { designData, imageEditModeId, layout } = useDesignState();
+  const { designData, imageEditModeId, layout, removeImageFromFrame } = useDesignState();
   const frameRect = linkedObj ? designData[linkedObj] as RectElement : null;
 
   if (!frameRect) return null;
 
-  const DivWithXmlns = 'div' as any;
   const isEditingThisImage = imageEditModeId === id;
   const finalUrl = themeImage ? layout.themeImages?.[themeImage] : url;
   
@@ -77,12 +76,39 @@ const ImageFrame: React.FC<ImageFrameProps> = ({ id, x, y, height, width, url, t
             rx={frameRect.borderRadius || 0}
           />
           <foreignObject x={frameRect.x} y={frameRect.y} width={frameRect.width} height={frameRect.height}>
-            <DivWithXmlns xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full flex flex-col items-center justify-center text-gray-500 p-2 text-center select-none">
+            {/* FIX: The `xmlns` attribute is required for content inside an SVG <foreignObject>, but TypeScript's default lib files do not include it on the HTMLDivElement type. Using @ts-ignore is a pragmatic way to suppress the resulting type error. */}
+            {/* @ts-ignore */}
+            <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full flex flex-col items-center justify-center text-gray-500 p-2 text-center select-none">
                 <ImageIcon/>
                 <span style={{ fontSize: '12px', marginTop: '4px' }}>Double-click to add image</span>
-            </DivWithXmlns>
+            </div>
           </foreignObject>
         </g>
+      )}
+      {isEditingThisImage && finalUrl && (
+        <foreignObject
+            x={frameRect.x}
+            y={frameRect.y}
+            width={frameRect.width}
+            height={frameRect.height}
+            style={{ pointerEvents: 'none' }}
+        >
+            {/* FIX: The `xmlns` attribute is required for content inside an SVG <foreignObject>, but TypeScript's default lib files do not include it on the HTMLDivElement type. Using @ts-ignore is a pragmatic way to suppress the resulting type error. */}
+            {/* @ts-ignore */}
+            <div xmlns="http://www.w3.org/1999/xhtml" className="w-full h-full relative">
+                <button 
+                    onMouseDown={(e) => {
+                        e.stopPropagation();
+                        removeImageFromFrame(id);
+                    }}
+                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg hover:bg-red-600 transition-colors z-10"
+                    style={{ pointerEvents: 'all' }}
+                    title="Remove Image"
+                >
+                    <TrashIcon />
+                </button>
+            </div>
+        </foreignObject>
       )}
     </g>
   );
