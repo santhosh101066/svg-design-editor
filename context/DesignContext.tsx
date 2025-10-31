@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
+
+import React, { useState, useRef, useEffect, useCallback, createContext, useContext, useLayoutEffect } from 'react';
 import { DesignData, Layout, Point, SelectionBox, Permission, ToolType, ResizeHandle, DesignElement, TextElement, RectElement, ImageElement, Layer, PathElement, PolygonElement, Anchor, SavedDesign } from '../types';
 import { useSave } from '../hooks/useSave';
 import { useShortcuts } from '../hooks/useShortcuts';
@@ -73,6 +74,7 @@ interface DesignContextState {
   renameLayer: (id: string, name: string) => void;
   toggleLayerVisibility: (id: string) => void;
   deleteObject: (id: string) => void;
+  moveObject: (draggedObjectId: string, targetLayerId: string, targetObjectId: string | null) => void;
   // Drawing state
   currentPath: string;
   currentPolygonPoints: Point[];
@@ -902,37 +904,32 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const playgroundEl = playgroundRef.current;
     if (!playgroundEl || !layout.width || !layout.height) return;
 
-    const { width: containerWidth, height: containerHeight } = playgroundEl.getBoundingClientRect();
-    if (containerWidth === 0 || containerHeight === 0) return;
+    // Use clientWidth/clientHeight as it represents the drawable area inside borders/padding.
+    const availableWidth = playgroundEl.clientWidth;
+    const availableHeight = playgroundEl.clientHeight;
 
-    const style = window.getComputedStyle(playgroundEl);
-    const paddingLeft = parseFloat(style.paddingLeft) || 0;
-    const paddingRight = parseFloat(style.paddingRight) || 0;
-    const paddingTop = parseFloat(style.paddingTop) || 0;
-    const paddingBottom = parseFloat(style.paddingBottom) || 0;
-    
-    const availableWidth = containerWidth - paddingLeft - paddingRight;
-    const availableHeight = containerHeight - paddingTop - paddingBottom;
+    if (availableWidth === 0 || availableHeight === 0) return;
 
-    const scaleX = (availableWidth * padding) / layout.width;
-    const scaleY = (availableHeight * padding) / layout.height;
+    const scaleX = availableWidth / layout.width;
+    const scaleY = availableHeight / layout.height;
     
-    const newZoom = Math.min(scaleX, scaleY);
+    const newZoom = Math.min(scaleX, scaleY) * padding;
     setZoom(newZoom);
-
-    // Center the scaled layout within the unscaled layout's area in the viewBox.
+    
+    // Calculate pan offset in SVG units to center the zoomed content
+    // within the original layout's bounds inside the SVG's viewBox.
+    // The browser will then automatically center the viewBox in the playground container.
     const newPanX = (layout.width * (1 - newZoom)) / 2;
     const newPanY = (layout.height * (1 - newZoom)) / 2;
 
     setPanOffset({ x: newPanX, y: newPanY });
   }, [layout.width, layout.height]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const fit = () => zoomToFit(0.95);
-    const timeoutId = setTimeout(fit, 100);
+    fit();
     window.addEventListener('resize', fit);
     return () => {
-      clearTimeout(timeoutId);
       window.removeEventListener('resize', fit);
     };
   }, [zoomToFit]);
@@ -1154,6 +1151,55 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const toggleLayerVisibility = useCallback((id: string) => {
     setLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l));
   }, []);
+
+  const moveObject = useCallback((draggedObjectId: string, targetLayerId: string, targetObjectId: string | null) => {
+    updateDesignDataWithHistory(prev => {
+        const newData = { ...prev };
+        const draggedObject = newData[draggedObjectId];
+        if (!draggedObject) return prev;
+
+        const sourceLayerId = draggedObject.layerId;
+        const linkedObjectId = draggedObject.linkedObj;
+
+        const objectsToMoveIds = [draggedObjectId];
+        if (linkedObjectId && newData[linkedObjectId]) {
+            objectsToMoveIds.push(linkedObjectId);
+        }
+
+        const objectsToMove = objectsToMoveIds.map(id => newData[id]).sort((a, b) => a.zIndex - b.zIndex);
+
+        objectsToMove.forEach(obj => {
+            newData[obj.id] = { ...obj, layerId: targetLayerId };
+        });
+
+        if (sourceLayerId !== targetLayerId) {
+            const sourceLayerObjects = Object.values(newData)
+                .filter(o => o.layerId === sourceLayerId && !objectsToMoveIds.includes(o.id))
+                .sort((a, b) => a.zIndex - b.zIndex);
+
+            sourceLayerObjects.forEach((obj, index) => {
+                newData[obj.id] = { ...obj, zIndex: index };
+            });
+        }
+        
+        const targetLayerObjects = Object.values(newData)
+            .filter(o => o.layerId === targetLayerId && !objectsToMoveIds.includes(o.id))
+            .sort((a, b) => a.zIndex - b.zIndex);
+
+        let insertIndex = targetObjectId ? targetLayerObjects.findIndex(o => o.id === targetObjectId) : -1;
+        if (insertIndex === -1) {
+            insertIndex = targetLayerObjects.length;
+        }
+
+        targetLayerObjects.splice(insertIndex, 0, ...objectsToMove);
+        
+        targetLayerObjects.forEach((obj, index) => {
+            newData[obj.id] = { ...obj, zIndex: index };
+        });
+
+        return newData;
+    });
+  }, [updateDesignDataWithHistory]);
   
   const onAnchorMouseDown = useCallback((e: React.MouseEvent, elementId: string, pointIndex: number) => {
     e.stopPropagation();
@@ -1191,9 +1237,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setSelectedObjId(null);
     setImageEditModeId(null);
     setEditingTextId(null);
-    
-    setTimeout(() => zoomToFit(), 100);
-  }, [setDesignData, setLayout, setLayers, setActiveLayerId, setHistory, setSelectedObjId, setImageEditModeId, setEditingTextId, zoomToFit]);
+  }, [setDesignData, setLayout, setLayers, setActiveLayerId, setHistory, setSelectedObjId, setImageEditModeId, setEditingTextId]);
 
 
   const value: DesignContextState = {
@@ -1209,6 +1253,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setLayers, activeLayerId, setActiveLayerId, addLayer, deleteLayer,
     renameLayer, toggleLayerVisibility, deleteObject, currentPath,
     currentPolygonPoints, onAnchorMouseDown, loadDesign, requestThemeImageUpload, updateThemeImage, applyThemeImage,
+    moveObject,
   };
 
   return <DesignContext.Provider value={value}>{children}</DesignContext.Provider>;

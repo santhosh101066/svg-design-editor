@@ -20,3 +20,4 @@ export * from './PenIcon';
 export * from './PolygonIcon';
 export * from './MenuIcon';
 export * from './MoreVertIcon';
+export * from './ChevronDownIcon';
