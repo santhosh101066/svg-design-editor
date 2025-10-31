@@ -39,7 +39,7 @@ const Playground: React.FC = () => {
   }, [designData]);
   
   const playgroundClasses = `
-    flex-1 h-full p-0 md:p-4 overflow-hidden bg-gray-200 flex items-center justify-center relative select-none
+    flex-1 p-0 md:p-4 overflow-hidden bg-gray-200 flex items-center justify-center relative select-none
     ${isPanning ? 'cursor-grabbing' : ''}
     ${currentTool === TT.Pan ? 'cursor-grab' : ''}
     ${currentTool === TT.Select ? 'cursor-default' : 'cursor-crosshair'}

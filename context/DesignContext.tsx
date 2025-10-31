@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useEffect, useCallback, createContext, useContext, useLayoutEffect } from 'react';
 import { DesignData, Layout, Point, SelectionBox, Permission, ToolType, ResizeHandle, DesignElement, TextElement, RectElement, ImageElement, Layer, PathElement, PolygonElement, Anchor, SavedDesign } from '../types';
 import { useSave } from '../hooks/useSave';
@@ -7,6 +5,13 @@ import { useShortcuts } from '../hooks/useShortcuts';
 import { getNextShapeId, getPointsFromPath, updatePathWithNewPoints, getMaxZIndex } from '../utils/shapes';
 import { createTextBoxes } from '../utils/text';
 import { PADDING, MIN_OBJ_SIZE, TEMPLATES } from '../constants';
+
+interface HistoryEntry {
+  designData: DesignData;
+  layout: Layout;
+  layers: Layer[];
+  activeLayerId: string | null;
+}
 
 interface DesignContextState {
   designData: DesignData;
@@ -36,6 +41,7 @@ interface DesignContextState {
   onDrawingFinish: () => void; // For Polygon tool
   fileInputRef: React.RefObject<HTMLInputElement>;
   updateImageFrame: (imageUrl: string, objId: string, dimensions: { imgWidth: number; imgHeight: number }) => void;
+  removeImageFromFrame: (imageId: string) => void;
   requestImageUpload: () => void;
   requestThemeImageUpload: (slot: 'primary' | 'secondary') => void;
   updateThemeImage: (slot: 'primary' | 'secondary', imageUrl: string) => void;
@@ -99,7 +105,6 @@ export function useDesignState(): DesignContextState {
 export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const firstTemplate = TEMPLATES[0];
   const [designData, setDesignData] = useState<DesignData>(firstTemplate.designData);
-  const [history, setHistory] = useState<{ past: DesignData[], future: DesignData[] }>({ past: [], future: [] });
   const [layout, setLayout] = useState<Layout>(firstTemplate.layout);
   const [layers, setLayers] = useState<Layer[]>(firstTemplate.layers);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(firstTemplate.layers[0]?.id || null);
@@ -125,7 +130,8 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [currentPolygonPoints, setCurrentPolygonPoints] = useState<Point[]>([]);
   
   const [draggedAnchor, setDraggedAnchor] = useState<Anchor | null>(null);
-  const historyInitialState = useRef<DesignData | null>(null);
+  
+  const historyInitialState = useRef<HistoryEntry | null>(null);
   const lastTap = useRef({ time: 0, targetId: null as string | null });
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -140,14 +146,69 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }).current;
 
   const { onDesignSave, onLayoutSave, onLayoutDelete, onDesignDelete, layoutDesigns, designs } = useSave({ designData, layout, layers });
+  
+  // --- START: REWRITTEN HISTORY LOGIC ---
+  const history = useRef<{ past: HistoryEntry[], future: HistoryEntry[] }>({ past: [], future: [] });
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
+  // FIX: Initialize designStateRef with null to prevent it from being undefined, which could cause errors in history functions.
+  const designStateRef = useRef<HistoryEntry | null>(null);
+
+  // Keep designStateRef updated on every render with the latest state.
+  designStateRef.current = { designData, layout, layers, activeLayerId };
+  
+  const updateHistoryButtons = useCallback(() => {
+    setHistoryState({
+        canUndo: history.current.past.length > 0,
+        canRedo: history.current.future.length > 0,
+    });
+  }, []);
+
+  const recordHistory = useCallback((entry: HistoryEntry) => {
+      history.current.future = []; // Clear redo stack on new action
+      history.current.past.push(entry);
+      updateHistoryButtons();
+  }, [updateHistoryButtons]);
+  
+  const undo = useCallback(() => {
+    // FIX: Add a null check for designStateRef.current to prevent potential runtime errors.
+    if (history.current.past.length === 0 || !designStateRef.current) return;
+
+    const previousState = history.current.past.pop()!;
+    // FIX: Add a null check for designStateRef.current to prevent potential runtime errors.
+    history.current.future.unshift(designStateRef.current);
+
+    setDesignData(previousState.designData);
+    setLayout(previousState.layout);
+    setLayers(previousState.layers);
+    setActiveLayerId(previousState.activeLayerId);
+    setSelectedObjId(null); // Clear selection on undo/redo
+    updateHistoryButtons();
+  }, [updateHistoryButtons]);
+
+  const redo = useCallback(() => {
+    // FIX: Add a null check for designStateRef.current to prevent potential runtime errors.
+    if (history.current.future.length === 0 || !designStateRef.current) return;
+
+    const nextState = history.current.future.shift()!;
+    // FIX: Add a null check for designStateRef.current to prevent potential runtime errors.
+    history.current.past.push(designStateRef.current);
+
+    setDesignData(nextState.designData);
+    setLayout(nextState.layout);
+    setLayers(nextState.layers);
+    setActiveLayerId(nextState.activeLayerId);
+    setSelectedObjId(null); // Clear selection on undo/redo
+    updateHistoryButtons();
+  }, [updateHistoryButtons]);
 
   const updateDesignDataWithHistory = useCallback((newState: DesignData | ((prevState: DesignData) => DesignData)) => {
-    setHistory(prev => ({
-      past: [...prev.past, designData],
-      future: [],
-    }));
+    // FIX: Add a null check for designStateRef.current to prevent potential runtime errors before recording history.
+    if (designStateRef.current) {
+      recordHistory(designStateRef.current);
+    }
     setDesignData(newState);
-  }, [designData]);
+  }, [recordHistory]);
+  // --- END: REWRITTEN HISTORY LOGIC ---
 
   useEffect(() => {
     if (!layout.themeColors) return;
@@ -251,27 +312,8 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
       }
     });
-  }, [layout.themeImages, designData, setDesignData]);
+  }, [layout.themeImages, designData]);
 
-
-  const undo = useCallback(() => {
-    if (history.past.length === 0) return;
-    const previousState = history.past[history.past.length - 1];
-    const newPast = history.past.slice(0, history.past.length - 1);
-    setHistory({ past: newPast, future: [designData, ...history.future] });
-    setDesignData(previousState);
-    setSelectedObjId(null);
-  }, [history, designData]);
-
-  const redo = useCallback(() => {
-    if (history.future.length === 0) return;
-    const nextState = history.future[0];
-    const newFuture = history.future.slice(1);
-    setHistory({ past: [...history.past, designData], future: newFuture });
-    setDesignData(nextState);
-    setSelectedObjId(null);
-  }, [history, designData]);
-  
   const deleteObject = useCallback((id: string) => {
     updateDesignDataWithHistory(prev => {
         const newData = { ...prev };
@@ -369,7 +411,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         return false;
     }
-    return false;
+    return true;
   }, [permissions, designData]);
 
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
@@ -453,7 +495,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } else if (currentTool === ToolType.Polygon) {
         setCurrentPolygonPoints(prev => [...prev, mousePos]);
     } else { // Rect, Ellipse, Image
-      historyInitialState.current = designData;
+      historyInitialState.current = { designData, layout, layers, activeLayerId };
       const baseElementProps = {
           x: mousePos.x, y: mousePos.y, width: 0, height: 0,
           edit: true, seal: false, layerId: activeLayerId!,
@@ -485,7 +527,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setResizeHandle('SE');
       setDragMouseStartPos(mousePos);
     }
-  }, [imageEditModeId, getMousePosition, currentTool, permissions, currentPolygonPoints.length, panOffset.x, panOffset.y, designData, activeLayerId, updateDesignDataWithHistory, pinchStateRef, zoom]);
+  }, [imageEditModeId, getMousePosition, currentTool, permissions, currentPolygonPoints.length, panOffset.x, panOffset.y, designData, activeLayerId, updateDesignDataWithHistory, pinchStateRef, zoom, layout, layers]);
 
   const onMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if ('touches' in e && e.touches.length === 2 && pinchStateRef.isPinching) {
@@ -660,8 +702,9 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const obj = { ...prev[activeId], x: newX, y: newY };
         const newData = { ...prev, [activeId]: obj };
 
-        if (!imageEditModeId && obj.linkedObj && prev[obj.linkedObj] && historyInitialState.current?.[obj.linkedObj!]) {
-            const linkedStartPos = historyInitialState.current[obj.linkedObj!];
+        const historyRef = historyInitialState.current;
+        if (!imageEditModeId && obj.linkedObj && prev[obj.linkedObj] && historyRef?.designData[obj.linkedObj!]) {
+            const linkedStartPos = historyRef.designData[obj.linkedObj!];
             const newLinkedX = linkedStartPos.x + dx;
             const newLinkedY = linkedStartPos.y + dy;
             const linked = { ...prev[obj.linkedObj], x: newLinkedX, y: newLinkedY };
@@ -740,34 +783,32 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (wasCreatingShape && selectedObjId && designData[selectedObjId]) {
           const obj = designData[selectedObjId];
           if (obj.width < MIN_OBJ_SIZE || obj.height < MIN_OBJ_SIZE) {
-            setDesignData(historyInitialState.current); // Revert
+            const { designData: prevDesignData, layout: prevLayout, layers: prevLayers, activeLayerId: prevActiveLayerId } = historyInitialState.current;
+            setDesignData(prevDesignData);
+            setLayout(prevLayout);
+            setLayers(prevLayers);
+            setActiveLayerId(prevActiveLayerId);
           } else {
-            setHistory(prev => ({ past: [...prev.past, historyInitialState.current!], future: [] }));
+            recordHistory(historyInitialState.current!);
           }
         } else {
-          setHistory(prev => ({ past: [...prev.past, historyInitialState.current!], future: [] }));
+          recordHistory(historyInitialState.current!);
         }
         historyInitialState.current = null;
       }
     } else if (isDragging && activeId) {
         setIsDragging(false);
         if (historyInitialState.current) {
-            const initialObj = historyInitialState.current[activeId];
+            const initialObj = historyInitialState.current.designData[activeId];
             const finalObj = designData[activeId];
             if (initialObj && finalObj && (initialObj.x !== finalObj.x || initialObj.y !== finalObj.y)) {
-                setHistory(prev => ({
-                    past: [...prev.past, historyInitialState.current!],
-                    future: [],
-                }));
+                recordHistory(historyInitialState.current!);
             }
         }
         historyInitialState.current = null;
     } else if (draggedAnchor) {
         if (historyInitialState.current) {
-            setHistory(prev => ({
-                past: [...prev.past, historyInitialState.current!],
-                future: [],
-            }));
+            recordHistory(historyInitialState.current!);
         }
         historyInitialState.current = null;
         setDraggedAnchor(null);
@@ -806,7 +847,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setDragObjectStartPos(null);
     setDragMouseStartPos(null);
-  }, [isPanning, isResizing, isDragging, selectedObjId, imageEditModeId, draggedAnchor, isDrawing, currentTool, selection, designData, updateDesignDataWithHistory, currentPath, activeLayerId, pinchStateRef]);
+  }, [isPanning, isResizing, isDragging, selectedObjId, imageEditModeId, draggedAnchor, isDrawing, currentTool, selection, designData, updateDesignDataWithHistory, currentPath, activeLayerId, pinchStateRef, recordHistory]);
 
   const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -925,26 +966,45 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Calculate pan offset in SVG units to center the zoomed content
     // within the original layout's bounds inside the SVG's viewBox.
     // The browser will then automatically center the viewBox in the playground container.
-    const newPanX = (layout.width * (1 - newZoom)) / 2;
-    const newPanY = (layout.height * (1 - newZoom)) / 2;
+    const newPanX = (availableWidth - layout.width * newZoom) / 2 / newZoom;
+    const newPanY = (availableHeight - layout.height * newZoom) / 2 / newZoom;
 
     setPanOffset({ x: newPanX, y: newPanY });
   }, [layout.width, layout.height]);
 
   useLayoutEffect(() => {
-    zoomToFit(0.95);
+    const playgroundEl = playgroundRef.current;
+    if (!playgroundEl) return;
+
+    // This observer ensures that if the available space changes (e.g., window resize,
+    // side panel toggle), the canvas is re-centered.
+    const observer = new ResizeObserver(() => {
+        zoomToFit(0.95);
+    });
+    observer.observe(playgroundEl);
+
+    // On initial load or when the layout dimensions change, we also need to center the canvas.
+    // A small timeout ensures that this runs after the browser has finalized the container's dimensions,
+    // making the centering calculation accurate. This is more robust than a 0ms timeout.
+    const handle = setTimeout(() => zoomToFit(0.95), 50);
+
+    // Cleanup function to clear the timeout and disconnect the observer.
+    return () => {
+        clearTimeout(handle);
+        observer.disconnect();
+    };
   }, [zoomToFit]);
 
   const onControlPointDown = useCallback((e: React.MouseEvent | React.TouchEvent, handle: ResizeHandle) => {
     e.stopPropagation();
     const activeId = imageEditModeId || selectedObjId;
     if (!activeId) return;
-    historyInitialState.current = designData;
+    historyInitialState.current = { designData, layout, layers, activeLayerId };
     setIsResizing(true);
     setResizeHandle(handle);
     setDragObjectStartPos(designData[activeId]);
     setDragMouseStartPos(getMousePosition(e));
-  }, [designData, selectedObjId, imageEditModeId, getMousePosition]);
+  }, [designData, selectedObjId, imageEditModeId, getMousePosition, layout, layers, activeLayerId]);
 
   const onObjDblClick = useCallback((id: string) => {
     const obj = designData[id];
@@ -969,7 +1029,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
         }
     }
-  }, [designData, fileInputRef, canEditObject, setEditingTextId, setImageEditModeId, setSelectedObjId]);
+  }, [designData, fileInputRef, canEditObject]);
 
   const onObjMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, id: string) => {
     e.stopPropagation();
@@ -992,24 +1052,24 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             setSelectedObjId(id);
             return; 
         }
-        historyInitialState.current = designData;
+        historyInitialState.current = { designData, layout, layers, activeLayerId };
         setSelectedObjId(id);
         setIsDragging(true);
         const obj = designData[id];
         setDragObjectStartPos(obj);
         setDragMouseStartPos(getMousePosition(e));
     }
-  }, [currentTool, canEditObject, designData, getMousePosition, imageEditModeId, permissions, setSelectedObjId, onObjDblClick]);
+  }, [currentTool, canEditObject, designData, getMousePosition, imageEditModeId, permissions, onObjDblClick, layout, layers, activeLayerId]);
   
   const onImageMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, id: string) => {
     e.stopPropagation();
     if (imageEditModeId === id && canEditObject(id)) {
-        historyInitialState.current = designData;
+        historyInitialState.current = { designData, layout, layers, activeLayerId };
         setIsDragging(true);
         setDragObjectStartPos(designData[id]);
         setDragMouseStartPos(getMousePosition(e));
     }
-  }, [imageEditModeId, canEditObject, designData, getMousePosition]);
+  }, [imageEditModeId, canEditObject, designData, getMousePosition, layout, layers, activeLayerId]);
 
   const updateImageFrame = useCallback((imageUrl: string, objId: string, dimensions: { imgWidth: number; imgHeight: number }) => {
     updateDesignDataWithHistory(prev => {
@@ -1043,6 +1103,24 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [updateDesignDataWithHistory]);
 
+  const removeImageFromFrame = useCallback((imageId: string) => {
+    updateDesignDataWithHistory(prev => {
+        const imageObj = prev[imageId] as ImageElement;
+        if (!imageObj || imageObj.type !== ToolType.Image) return prev;
+
+        const updatedImage: ImageElement = { 
+            ...imageObj, 
+            url: undefined, 
+            themeImage: null, 
+            imgWidth: undefined, 
+            imgHeight: undefined 
+        };
+        
+        return { ...prev, [imageId]: updatedImage };
+    });
+    setImageEditModeId(null);
+  }, [updateDesignDataWithHistory]);
+
   const requestImageUpload = useCallback(() => {
     if (fileInputRef.current) {
         fileInputRef.current.dataset.action = 'new';
@@ -1060,7 +1138,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             [slot]: imageUrl,
         }
     }));
-  }, [setLayout]);
+  }, []);
 
   const requestThemeImageUpload = useCallback((slot: 'primary' | 'secondary') => {
       if (fileInputRef.current) {
@@ -1129,42 +1207,55 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const bringToFront = useCallback(() => {
     if (!selectedObjId) return;
+    recordHistory(designStateRef.current!);
     const maxZ = getMaxZIndex(designData);
-    updateDesignDataWithHistory(prev => ({ ...prev, [selectedObjId]: { ...prev[selectedObjId], zIndex: maxZ + 1 } }));
-  }, [selectedObjId, designData, updateDesignDataWithHistory]);
+    setDesignData(prev => ({ ...prev, [selectedObjId]: { ...prev[selectedObjId], zIndex: maxZ + 1 } }));
+  }, [selectedObjId, designData, recordHistory]);
 
   const sendToBack = useCallback(() => {
     if (!selectedObjId) return;
+    recordHistory(designStateRef.current!);
     const minZ = Math.min(...Object.values(designData).map(o => o.zIndex));
-    updateDesignDataWithHistory(prev => ({ ...prev, [selectedObjId]: { ...prev[selectedObjId], zIndex: minZ - 1 } }));
-  }, [selectedObjId, designData, updateDesignDataWithHistory]);
+    setDesignData(prev => ({ ...prev, [selectedObjId]: { ...prev[selectedObjId], zIndex: minZ - 1 } }));
+  }, [selectedObjId, designData, recordHistory]);
   
   const addLayer = useCallback(() => {
-    const newLayer: Layer = { id: `layer-${Date.now()}`, name: `Layer ${layers.length + 1}`, visible: true };
-    setLayers(prev => [...prev, newLayer]);
-    setActiveLayerId(newLayer.id);
-  }, [layers]);
+    recordHistory(designStateRef.current!);
+    const newLayerId = `layer-${Date.now()}`;
+    setLayers(prev => [...prev, { id: newLayerId, name: `Layer ${prev.length + 1}`, visible: true }]);
+    setActiveLayerId(newLayerId);
+  }, [recordHistory]);
   
   const deleteLayer = useCallback((id: string) => {
-    if (layers.length <= 1) return;
-    setLayers(prev => prev.filter(l => l.id !== id));
-    updateDesignDataWithHistory(prev => {
-        const newData = { ...prev };
+    if (layers.length <= 1) {
+        return;
+    }
+    recordHistory(designStateRef.current!);
+    setDesignData(prevData => {
+        const newData = { ...prevData };
         Object.keys(newData).forEach(key => {
             if (newData[key].layerId === id) delete newData[key];
         });
         return newData;
     });
-    if (activeLayerId === id) setActiveLayerId(layers.find(l => l.id !== id)?.id || null);
-  }, [layers, activeLayerId, updateDesignDataWithHistory]);
+    
+    const newLayers = layers.filter(l => l.id !== id);
+    setLayers(newLayers);
+    
+    if (activeLayerId === id) {
+        setActiveLayerId(newLayers[0]?.id || null);
+    }
+  }, [layers, activeLayerId, recordHistory]);
   
   const renameLayer = useCallback((id: string, name: string) => {
+    recordHistory(designStateRef.current!);
     setLayers(prev => prev.map(l => l.id === id ? { ...l, name } : l));
-  }, []);
+  }, [recordHistory]);
   
   const toggleLayerVisibility = useCallback((id: string) => {
+    recordHistory(designStateRef.current!);
     setLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l));
-  }, []);
+  }, [recordHistory]);
 
   const moveObject = useCallback((draggedObjectId: string, targetLayerId: string, targetObjectId: string | null) => {
     updateDesignDataWithHistory(prev => {
@@ -1217,9 +1308,9 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   
   const onAnchorMouseDown = useCallback((e: React.MouseEvent, elementId: string, pointIndex: number) => {
     e.stopPropagation();
-    historyInitialState.current = designData;
+    historyInitialState.current = { designData, layout, layers, activeLayerId };
     setDraggedAnchor({ elementId, pointIndex });
-  }, [designData]);
+  }, [designData, layout, layers, activeLayerId]);
 
   const loadDesign = useCallback((design: SavedDesign) => {
     const { designData: data, layout: newLayout, layers: newLayers } = design;
@@ -1247,18 +1338,19 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
     setLayers(newLayers || [{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true }]);
     setActiveLayerId(newLayers?.[0]?.id || null);
-    setHistory({ past: [], future: [] });
+    history.current = { past: [], future: [] };
+    updateHistoryButtons();
     setSelectedObjId(null);
     setImageEditModeId(null);
     setEditingTextId(null);
-  }, [setDesignData, setLayout, setLayers, setActiveLayerId, setHistory, setSelectedObjId, setImageEditModeId, setEditingTextId]);
+  }, [setDesignData, setLayout, setLayers, setActiveLayerId, updateHistoryButtons, setSelectedObjId, setImageEditModeId, setEditingTextId]);
 
   const onCancelDrawing = useCallback(() => {
     setIsDrawing(false);
     setCurrentPath('');
     setCurrentPolygonPoints([]);
     setCurrentTool(ToolType.Select);
-  }, [setCurrentTool]);
+  }, []);
 
   const value: DesignContextState = {
     designData, setDesignData, updateDesignDataWithHistory, layout, setLayout,
@@ -1266,14 +1358,14 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setImageEditModeId, editingTextId, setEditingTextId, svgRef, previewRef, playgroundRef,
     onMouseDown, onMouseMove, onMouseUp, onWheel, onControlPointDown, onObjMouseDown,
     onImageMouseDown, onObjDblClick, onDrawingFinish, fileInputRef, updateImageFrame, requestImageUpload,
-    bringToFront, sendToBack, cursorPosition, undo, redo, canUndo: history.past.length > 0,
-    canRedo: history.future.length > 0, permissions, setPermissions, canEditObject,
+    bringToFront, sendToBack, cursorPosition, undo, redo, canUndo: historyState.canUndo,
+    canRedo: historyState.canRedo, permissions, setPermissions, canEditObject,
     selection, zoom, setZoom, zoomIn, zoomOut, zoomToFit, panOffset, setPanOffset, isPanning, layoutDesigns,
     designs, onLayoutSave, onDesignSave, onLayoutDelete, onDesignDelete, layers,
     setLayers, activeLayerId, setActiveLayerId, addLayer, deleteLayer,
     renameLayer, toggleLayerVisibility, deleteObject, currentPath,
     currentPolygonPoints, onAnchorMouseDown, loadDesign, requestThemeImageUpload, updateThemeImage, applyThemeImage,
-    moveObject, isDrawing, onCancelDrawing,
+    moveObject, isDrawing, onCancelDrawing, removeImageFromFrame,
   };
 
   return <DesignContext.Provider value={value}>{children}</DesignContext.Provider>;
