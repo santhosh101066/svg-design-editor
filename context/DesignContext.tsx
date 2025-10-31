@@ -951,24 +951,31 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const playgroundEl = playgroundRef.current;
     if (!playgroundEl || !layout.width || !layout.height) return;
 
-    // Use clientWidth/clientHeight as it represents the drawable area inside borders/padding.
     const availableWidth = playgroundEl.clientWidth;
     const availableHeight = playgroundEl.clientHeight;
-
     if (availableWidth === 0 || availableHeight === 0) return;
 
-    const scaleX = availableWidth / layout.width;
-    const scaleY = availableHeight / layout.height;
+    // The SVG viewBox dimensions
+    const viewBoxWidth = layout.width + PADDING * 2;
+    const viewBoxHeight = layout.height + PADDING * 2;
     
-    const newZoom = Math.min(scaleX, scaleY) * padding;
-    setZoom(newZoom);
-    
-    // Calculate pan offset in SVG units to center the zoomed content
-    // within the original layout's bounds inside the SVG's viewBox.
-    // The browser will then automatically center the viewBox in the playground container.
-    const newPanX = (availableWidth - layout.width * newZoom) / 2 / newZoom;
-    const newPanY = (availableHeight - layout.height * newZoom) / 2 / newZoom;
+    // The browser's implicit scale factor for the SVG to fit its container
+    const svgScale = Math.min(availableWidth / viewBoxWidth, availableHeight / viewBoxHeight);
 
+    // The desired effective scale from our world units to screen pixels
+    const effectiveZoom = Math.min(availableWidth / layout.width, availableHeight / layout.height) * padding;
+
+    // To get the desired effectiveZoom, the internal zoom factor for the 'g' transform
+    // must be adjusted to account for the browser's own scaling.
+    const newInternalZoom = effectiveZoom / svgScale;
+    
+    // With the content centered in the viewBox by the browser, we calculate the pan
+    // required to center our transformed content *within the viewBox*.
+    // The pan offset is in world units and applied before the scale.
+    const newPanX = (layout.width - layout.width * newInternalZoom) / 2;
+    const newPanY = (layout.height - layout.height * newInternalZoom) / 2;
+
+    setZoom(newInternalZoom);
     setPanOffset({ x: newPanX, y: newPanY });
   }, [layout.width, layout.height]);
 
