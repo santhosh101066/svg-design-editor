@@ -1,0 +1,5 @@
+{
+  "name": "SVG Photo Editor",
+  "description": "A powerful and intuitive SVG photo editor built with React and Tailwind CSS. Create, edit, and manipulate vector shapes, text, and images with a rich set of tools and a responsive interface.",
+  "requestFramePermissions": []
+}
