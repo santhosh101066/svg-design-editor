@@ -934,12 +934,7 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [layout.width, layout.height]);
 
   useLayoutEffect(() => {
-    const fit = () => zoomToFit(0.95);
-    fit();
-    window.addEventListener('resize', fit);
-    return () => {
-      window.removeEventListener('resize', fit);
-    };
+    zoomToFit(0.95);
   }, [zoomToFit]);
 
   const onControlPointDown = useCallback((e: React.MouseEvent | React.TouchEvent, handle: ResizeHandle) => {
