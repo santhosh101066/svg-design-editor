@@ -1,11 +1,12 @@
 
+
 import React, { useState, useRef, useEffect, useCallback, createContext, useContext, useLayoutEffect } from 'react';
 import { DesignData, Layout, Point, SelectionBox, Permission, ToolType, ResizeHandle, DesignElement, TextElement, RectElement, ImageElement, Layer, PathElement, PolygonElement, Anchor, SavedDesign } from '../types';
 import { useSave } from '../hooks/useSave';
 import { useShortcuts } from '../hooks/useShortcuts';
 import { getNextShapeId, getPointsFromPath, updatePathWithNewPoints, getMaxZIndex } from '../utils/shapes';
 import { createTextBoxes } from '../utils/text';
-import { PADDING, MIN_OBJ_SIZE } from '../constants';
+import { PADDING, MIN_OBJ_SIZE, TEMPLATES } from '../constants';
 
 interface DesignContextState {
   designData: DesignData;
@@ -96,15 +97,12 @@ export function useDesignState(): DesignContextState {
 }
 
 export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [designData, setDesignData] = useState<DesignData>({});
+  const firstTemplate = TEMPLATES[0];
+  const [designData, setDesignData] = useState<DesignData>(firstTemplate.designData);
   const [history, setHistory] = useState<{ past: DesignData[], future: DesignData[] }>({ past: [], future: [] });
-  const [layout, setLayout] = useState<Layout>({
-    height: 600, width: 800,
-    themeColors: { primary: '#3b82f6', secondary: '#64748b', tertiary: '#ecfdf5' },
-    themeImages: { primary: null, secondary: null }
-  });
-  const [layers, setLayers] = useState<Layer[]>([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true }]);
-  const [activeLayerId, setActiveLayerId] = useState<string | null>(layers[0].id);
+  const [layout, setLayout] = useState<Layout>(firstTemplate.layout);
+  const [layers, setLayers] = useState<Layer[]>(firstTemplate.layers);
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(firstTemplate.layers[0]?.id || null);
   const [currentTool, setCurrentTool] = useState<ToolType>(ToolType.Select);
   const [selectedObjId, setSelectedObjId] = useState<string | null>(null);
   const [imageEditModeId, setImageEditModeId] = useState<string | null>(null);
