@@ -905,14 +905,24 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const { width: containerWidth, height: containerHeight } = playgroundEl.getBoundingClientRect();
     if (containerWidth === 0 || containerHeight === 0) return;
 
-    const scaleX = (containerWidth * padding) / layout.width;
-    const scaleY = (containerHeight * padding) / layout.height;
+    const style = window.getComputedStyle(playgroundEl);
+    const paddingLeft = parseFloat(style.paddingLeft) || 0;
+    const paddingRight = parseFloat(style.paddingRight) || 0;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const paddingBottom = parseFloat(style.paddingBottom) || 0;
+    
+    const availableWidth = containerWidth - paddingLeft - paddingRight;
+    const availableHeight = containerHeight - paddingTop - paddingBottom;
+
+    const scaleX = (availableWidth * padding) / layout.width;
+    const scaleY = (availableHeight * padding) / layout.height;
     
     const newZoom = Math.min(scaleX, scaleY);
     setZoom(newZoom);
 
-    const newPanX = (containerWidth - layout.width * newZoom) / 2 - PADDING;
-    const newPanY = (containerHeight - layout.height * newZoom) / 2 - PADDING;
+    // Center the scaled layout within the unscaled layout's area in the viewBox.
+    const newPanX = (layout.width * (1 - newZoom)) / 2;
+    const newPanY = (layout.height * (1 - newZoom)) / 2;
 
     setPanOffset({ x: newPanX, y: newPanY });
   }, [layout.width, layout.height]);
