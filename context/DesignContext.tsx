@@ -525,6 +525,11 @@ export const DesignProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     if (pinchStateRef.isPinching) return;
 
+    // Prevent default browser actions like scrolling during canvas interactions.
+    if (isPanning || isResizing || isDragging || draggedAnchor || isDrawing) {
+        e.preventDefault();
+    }
+
     const mousePos = getMousePosition(e);
     setCursorPosition(mousePos);
     const eventPoint = getEventPoint(e);
